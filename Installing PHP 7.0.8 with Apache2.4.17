@@ -1,0 +1,183 @@
+Installing PHP 7.0.8 with Apache2.4.17
+ 
+Installing Apache 2.4.x
+
+•	Remove the existing apache, apr and php:
+for i in $(rpm -qa | grep httpd); do yum remove -y $i; done
+rm -rfv /etc/httpd/ /var/log/httpd/
+for i in $(rpm -qa | grep apr); do  yum remove -y $i; done
+for i in $(rpm -qa | grep php); do yum remove -y $i; done
+ 
+•	Make sure you're using the following yum repos in the NBC environment under OEL6:
+public-yum-ol6.repo (enable base repo, latest, addons and mysql’s)
+epel-release-6-8.noarch.rpm (download and install it from redhat repo mirror)
+mysql-community-release-el6-5.noarch.rpm (download and install it from mysql repo mirror)
+•	Finally, install the prerequisites:
+yum -y update
+
+yum install -y vim-enhanced gcc gcc-c++ zlib-devel bzip2-devel readline-devel libxml2-devel openssl-devel curl-devel libpng-devel libjpeg-devel freetype-devel gmp-devel libmcrypt libmcrypt-devel aspell-devel libxslt-devel mysql-community-client mysql-community-devel mysql-community-libs-compat perl-libwww-perl curl wget make automake autoconf libtool-devel ncurses-devel groff pkgconfig libedit-devel graphviz python-sphinx python-docutils -nogpg
+Install APR:
+•	Download, configure and make/install APR:
+curl -O http://apache.mesi.com.ar/apr/apr-1.5.2.tar.gz  | tar -xzv && cd apr-1.5.2 &&  sudo ./configure --prefix=/usr/local/ && sudo make && sudo make install
+Install APR Util:
+•	Install apr-util:
+curl http://apache.arvixe.com//apr/apr-util-1.5.4.tar.gz | tar -xzv  && cd apr-util-1.5.4  && sudo ./configure --prefix=/usr/local/ --with-apr=/usr/local/apr/ && sudo make && sudo make install
+ 
+Install PCRE:
+•	Set ftp proxy as below:
+export ftp_proxy="http://proxy.inbcu.com:80"
+
+•	Download, configure and install PCRE :
+curl -O ftp://ftp.csx.cam.ac.uk/pub/software/programming/pcre/pcre-8.37.tar.gz | tar -xzv && cd pcre-8.37 && sudo ./configure --prefix=/usr  --docdir=/usr/share/doc/pcre-8.37 --enable-unicode-properties --enable-pcre16  --enable-pcre32 --enable-pcregrep-libz       --enable-pcregrep-libbz2   --enable-pcretest-libreadline  --disable-static  && sudo make && sudo make install
+
+(this command may throw error, in which case download the gzip file separately and deflate first, run the configure command from within the directory later)
+(Also remember if doing manually not to download pcre2 instead of pcre latest package)
+
+Configure Apache
+•	Download, configure and install apache:
+curl http://mirrors.ibiblio.org/apache//httpd/httpd-2.4.17.tar.gz| tar -xz && cd httpd-2.4.17 && sudo ./configure  --with-mpm=prefork --with-apr=/usr/local/ --with-apr-util=/usr/local/ --prefix=/opt/apache2 --with-suexec-bin=/opt/apache2/bin/suexec  --enable-so --enable-expires --enable-spelling && sudo make && sudo make install && sudo /sbin/ldconfig
+ 
+•	Now load the modules you'll want into the Apache config:
+LoadModule php7_module modules/libphp7.so 
+LoadModule expires_module modules/mod_expires.so 
+LoadModule rewrite_module modules/mod_rewrite.so
+
+ 
+•	Configure the server-status:
+#Mod_status config 
+ExtendedStatus on 
+<Location /server-status> 
+SetHandler server-status 
+Require all granted 
+Require ip 173.239.108.154 64.210.195.0/24 64.210.193.0/24 64.210.199.0/24 127.0.0.1 173.213.208.224/28 173.213.212.224/28 
+</Location>
+ 
+•	Set the default NBCU docroot VHOST:
+<VirtualHost *> 
+ServerAdmin webmaster@dummy-host.example.com 
+DocumentRoot /opt/apache2/htdocs 
+ServerName localhost 
+ErrorLog /dev/null 
+CustomLog /dev/null common 
+<Directory /*> 
+AddHandler cgi-script .cgi 
+Options -Indexes +FollowSymLinks +ExecCGI +Includes 
+AllowOverride All 
+Order Allow,Deny 
+Allow from all 
+</Directory> 
+ExpiresActive On 
+ExpiresDefault "access plus 30 minute" 
+RewriteEngine On 
+RewriteCond %{REQUEST_METHOD} ^TRACE 
+RewriteRule .* - [F] 
+</VirtualHost>
+ 
+•	Set the default NBCU health check VHOST (for checking into the F5 load balancer)
+<VirtualHost *> 
+ServerAdmin webmaster@nbcuni.com 
+DocumentRoot /opt/apache2/htdocs/hcphp.nbc.com 
+ServerName hcphp.nbc.com 
+ServerAlias phphc.nbc.com 173.239.108.154 224432-24.224432-24.com 
+<Directory /*> 
+AddHandler cgi-script .cgi 
+Options -Indexes +FollowSymLinks +ExecCGI +Includes 
+AllowOverride All 
+Order Allow,Deny 
+Allow from all 
+</Directory> 
+RewriteEngine On 
+RewriteCond %{REQUEST_METHOD} ^TRACE 
+RewriteRule .* - [F] 
+ExpiresActive On 
+ExpiresDefault "access plus 30 minutes" 
+</VirtualHost>
+ 
+•	Now make the health check directory and create the file as follows:
+mkdir /opt/apache2/htdocs/hcphp.nbc.com 
+echo good > /opt/apache2/htdocs/hcphp.nbc.com/healthcheck.php
+
+•	Create the apache binary link to the default location: 
+ 
+ln -s /opt/apache2/bin/apachectl /usr/bin/apachectl
+ln -s /opt/apache2/bin/apachectl /usr/sbin/apachectl
+
+GET http://$(hostname -i)/server-status   (???)
+GET http://$(hostname -i)/healthcheck.php    (???)
+GET http://$(hostname -f)/healthcheck.php    (???)
+GET http://localhost/server-status
+GET http://localhost/healthcheck.php
+GET http://localhost/healthcheck.php
+P.S.: Check the above 3 server status command after you have started the Apache service
+
+Installing PHP 7.0.x
+
+•	Latest Stable PHP:
+The latest stable PHP 7 version as of today (7/01/2016) is PHP 7.0.8
+•	PHP configure script:
+The default PHP Configuration script is as follows.
+sudo ./configure  --with-apxs2=/opt/apache2/bin/apxs --with-zlib=/usr --prefix=/opt/php-7.0.8 --with-libdir=lib64 --with-config-file-path=/etc --libexecdir=/usr/libexec --with-bz2 --with-curl --with-gd --with-freetype-dir=/usr --with-png-dir=/usr/lib64 --enable-gd-native-ttf --with-iconv --with-jpeg-dir=/usr/lib64 --enable-exif --enable-ftp --enable-sockets --enable-sysvsem --enable-sysvshm --enable-sysvmsg --enable-wddx --with-kerberos --enable-shmop --enable-calendar --with-xmlrpc --enable-soap --with-openssl --with-xsl --enable-mbstring --with-mcrypt=/usr --enable-mysqlnd --enable-pdo --with-pdo-mysql=/usr --with-mysqli=/usr/bin/mysql_config --enable-zip --with-gettext=shared --with-gmp --with-ldap --with-config-file-scan-dir=/etc/php.d --with-pcre-regex --enable-opcache --enable-fpm --enable-inline-optimization --enable-pcntl --enable-mbregex --enable-bcmath --with-mhash --disable-rpath --with-libdir=/lib/x86_64-linux-gnu --with-png-dir=/usr/lib64 --with-mcrypt --with-libxml-dir=/usr --enable-ctype --enable-dom --enable-fileinfo --enable-filter --enable-json --with-pdo-sqlite --enable-phar --enable-posix --enable-session --enable-simplexml --with-sqlite3 --enable-tokenizer --enable-xml --enable-xmlreader  --enable-xmlwriter 
+
+sudo make && sudo make all && sudo make test && sudo make install
+If you get error in configure like
+configure: error: Cannot find ldap libraries in /usr//lib/x86_64-linux-gnu
+
+Then look at /usr/lib64 folder to see if the relevant libraries are present, either they are not installed then install the relevant package.
+yum install libldb libldb-devel
+
+If installed but not in path then we need to create the target folder and create symlinks for the relevant required libraries, like below (for above error case):
+mkdir /usr/lib64/x86_64-linux-gnu
+ln -s /usr/lib64/libldap.so /usr/lib64/x86_64-linux-gnu/libldap.so
+ln -s /usr/lib64/libldap_r.so /usr/lib64/x86_64-linux-gnu/libldap_r.so
+ln -s /usr/lib64/libldif.so /usr/lib64/x86_64-linux-gnu/libldif.so
+ln -s /usr/lib64/x86_64-linux-gnu/ /usr/lib/x86_64-linux-gnu
+Redo the php install after this
+
+•	Create PHP links:
+Now create the default locations for PHP as follows:
+ln -s /opt/php-7.0.8 /opt/php && ln -s /opt/php/bin/php /usr/bin/php && ln -s /opt/php/bin/pecl /usr/bin/pecl 
+&& ln -s /opt/php/bin/pear /usr/bin/pear && ln -s /opt/php/bin/phpize /usr/bin/phpize
+ln -s /opt/php/bin/php /usr/sbin/php && ln -s /opt/php/bin/pecl /usr/sbin/pecl && ln -s /opt/php/bin/pear /usr/sbin/pear && ln -s /opt/php/bin/phpize /usr/sbin/phpize
+ 
+Create a phpinfo.php file with the following contenst at /opt/apache2/htdocs/
+<?php
+// Show all information, defaults to INFO_ALL
+phpinfo();
+?>
+
+Lets install apcu now
+cd /opt/php-7.0.8/etc
+export http_proxy=http://proxy.inbcu.com:80 && export https_proxy=http://proxy.inbcu.com:80
+../bin/pear config-set http_proxy http://proxy.inbcu.com:80
+../bin/pecl -C ./pear.conf update-channels
+../bin/pecl -C ./pear.conf install channel://pecl.php.net/apcu-5.1.5
+hit enter when prompted during above install
+Then add this:
+view /etc/php.ini
+extension=apcu.so
+extension=gettext.so
+;extension=memcache.so
+;extension=redis.so
+extension=phar.so
+
+cd /opt/php-7.0.8/lib/php/extensions/
+make sure the only directory here is - no-debug-non-zts-20151012 (also ensure there is no soft links inside this folder)
+if there is any other then remove it, then
+ln -s /opt/php-7.0.8/lib/php/extensions/no-debug-non-zts-20151012/ /opt/php-7.0.8/lib/php/extensions/no-debug-zts-20151012
+chmod +x /opt/php-7.0.8/lib/php/extensions/no-debug-non-zts-20151012/*.so
+
+The resulting directory structure should like only like this
+The process of installing PHP with Apache is completed.
+
+Copy the php.ini template from the source folder to /etc/ folder and make the following changes:
+
+extension_dir ="/opt/php-7.0.8/lib/php/extensions/no-debug-zts-20151012/"
+extension=redis.so	
+zend_extension=opcache.so
+
+Start Apache process if not already started. 
+Or restart if it is already running so the php and its compiled modules can be loaded and used into the apache environment.
+
+Add this to httpd.conf for php application support:
+AddType text/html .php
+AddHandler php5-script    .php
